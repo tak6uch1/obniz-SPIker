@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Input Audio</title>
+<script src="https://unpkg.com/obniz@3.x/obniz.js"></script>
+<script src="SPIker.js"></script>
+<script src="https://code.jquery.com/jquery-2.0.3.min.js"></script>
+
+
+<script>
+var obniz = new Obniz("OBNIZ_ID_HERE");
+var speaker = null;
+
+obniz.onconnect = async function () {
+    Obniz.PartsRegistrate(SPIker);
+    
+    speaker = obniz.wired("SPIker", { signal:1, gnd:0 });
+    wav0 = await speaker.convertFromURI("https://obniz.com/users/1365/repo/hello.wav");
+    wav1 = await speaker.convertFromURI("https://obniz.com/users/1365/repo/hello_filter.wav");
+}
+
+// Input Audio
+window.AudioContext = window.AudioContext || window.webkitAudioContext;
+var audioContext = new AudioContext();
+const bufferSize = 1024;
+
+var localMediaStream = null;
+var localScriptProcessor = null;
+audioData = []; // 録音データ
+
+var onAudioProcess = function(e) {
+  var input = e.inputBuffer.getChannelData(0);
+  var bufferData = new Float32Array(bufferSize);
+  for (var i = 0; i < bufferSize; i++) {
+    bufferData[i] = input[i];
+  }
+
+  audioData.push(bufferData);
+};
+var startRecording = function() {
+  navigator.getUserMedia(
+    { audio: true },
+    function(stream) {
+      localMediaStream = stream;
+      var scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      localScriptProcessor = scriptProcessor;
+      var mediastreamsource = audioContext.createMediaStreamSource(stream);
+      mediastreamsource.connect(scriptProcessor);
+      scriptProcessor.onaudioprocess = onAudioProcess;
+      scriptProcessor.connect(audioContext.destination);
+    },
+    function(e) {
+      console.log(e);
+    }
+  );
+};
+var exportWAV = function(audioData) {
+
+  var encodeWAV = function(samples, sampleRate) {
+    var buffer = new ArrayBuffer(44 + samples.length * 2);
+    var view = new DataView(buffer);
+
+    var writeString = function(view, offset, string) {
+      for (var i = 0; i < string.length; i++){
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    var floatTo16BitPCM = function(output, offset, input) {
+      for (var i = 0; i < input.length; i++, offset += 2){
+        var s = Math.max(-1, Math.min(1, input[i]));
+        output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+    };
+
+    writeString(view, 0, 'RIFF');  // RIFFヘッダ
+    view.setUint32(4, 32 + samples.length * 2, true); // これ以降のファイルサイズ
+    writeString(view, 8, 'WAVE'); // WAVEヘッダ
+    writeString(view, 12, 'fmt '); // fmtチャンク
+    view.setUint32(16, 16, true); // fmtチャンクのバイト数
+    view.setUint16(20, 1, true); // フォーマットID
+    view.setUint16(22, 1, true); // チャンネル数
+    view.setUint32(24, sampleRate, true); // サンプリングレート
+    view.setUint32(28, sampleRate * 2, true); // データ速度
+    view.setUint16(32, 2, true); // ブロックサイズ
+    view.setUint16(34, 16, true); // サンプルあたりのビット数
+    writeString(view, 36, 'data'); // dataチャンク
+    view.setUint32(40, samples.length * 2, true); // 波形データのバイト数
+    floatTo16BitPCM(view, 44, samples); // 波形データ
+
+    return view;
+  };
+
+  var mergeBuffers = function(audioData) {
+    var sampleLength = 0;
+    for (var i = 0; i < audioData.length; i++) {
+      sampleLength += audioData[i].length;
+    }
+    var samples = new Float32Array(sampleLength);
+    var sampleIdx = 0;
+    for (var i = 0; i < audioData.length; i++) {
+      for (var j = 0; j < audioData[i].length; j++) {
+        samples[sampleIdx] = audioData[i][j];
+        sampleIdx++;
+      }
+    }
+    return samples;
+  };
+
+  var dataview = encodeWAV(mergeBuffers(audioData), audioContext.sampleRate);
+  var audioBlob = new Blob([dataview], { type: 'audio/wav' });
+
+  var myURL = window.URL || window.webkitURL;
+  var url = myURL.createObjectURL(audioBlob);
+  return url;
+};        
+
+function startRec(){
+  $('#recBtn').css( 'display', 'none' );
+  $('#stopBtn').css( 'display', 'block' );
+
+  navigator.mediaDevices.getUserMedia( { audio: true } ).then( startRecording );
+}
+
+async function stopRec(){
+  $('#recBtn').css( 'display', 'block' );
+  $('#stopBtn').css( 'display', 'none' );
+  if( localScriptProcessor ){
+    localScriptProcessor.disconnect();
+    localScriptProcessor.onaudioprocess = null;
+    localScriptProcessor = null;
+  }
+  var convertedData = await speaker.convertFromURI( exportWAV( audioData ) );
+  speaker.play( convertedData );
+  audioData = [];
+}
+</script>
+</head>
+
+<body>
+  <div id="page">
+    <div>
+      <input type="button" id="recBtn" value="声かけ" onClick="startRec();" style="display:block;"/>
+      <input type="button" id="stopBtn" value="ストップ" onClick="stopRec();" style="display:none;"/>
+    </div>
+  </div>
+</body>
+</html>

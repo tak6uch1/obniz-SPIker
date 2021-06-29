@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>効果音テスト</title>
+<script src="https://unpkg.com/obniz@3.x/obniz.js"></script>
+<script src="SPIker.js"></script>
+
+<script>
+var obniz = new Obniz("OBNIZ_ID_HERE");
+
+var okSound = null;
+var ngSound = null;
+var speaker = null;
+
+obniz.onconnect = async function () {
+    Obniz.PartsRegistrate(SPIker);
+    
+    speaker = obniz.wired("SPIker", { signal:1, gnd:0 });
+    wav0 = await speaker.convertFromURI("https://obniz.com/users/1365/repo/hello.wav");
+    wav1 = await speaker.convertFromURI("https://obniz.com/users/1365/repo/hello_filter.wav");
+}
+
+async function play0() {
+    speaker.play(wav0);
+}
+
+async function play1() {
+    speaker.play(wav1);
+}
+</script>
+</head>
+
+<body>
+<input type="button" value="wav0" onclick="play0();"><br>
+<br>
+<input type="button" value="wav1" onclick="play1();"><br>
+</body>
+</html>
